@@ -1,0 +1,545 @@
+[
+  {
+    "id": "miraReportes001",
+    "name": "Reportes de limpieza pública - Miraflores",
+    "active": true,
+    "nodes": [
+      {
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "reportes",
+          "responseMode": "responseNode",
+          "options": {
+            "rawBody": true
+          }
+        },
+        "name": "Webhook reportes",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2,
+        "position": [
+          0,
+          300
+        ],
+        "webhookId": "5d0a7f6e-3b1c-4c52-9a43-0c9f4f1e7a10",
+        "id": "5e0e79c8-b973-4183-bde3-8b3c5dc360ea"
+      },
+      {
+        "parameters": {
+          "jsCode": "const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;\n// The webhook delivers the raw body so a malformed JSON returns 400 DATOS_INVALIDOS\n// instead of n8n's own 422 parsing error.\nlet parsed = {};\nconst item = $input.first();\nif (item.binary && item.binary.data) {\n  const buf = await this.helpers.getBinaryDataBuffer(0, 'data');\n  try {\n    parsed = JSON.parse(buf.toString('utf8'));\n  } catch (e) {\n    return [{ json: { decision: 'INVALIDO', request_id: null,\n      errores: ['El cuerpo de la solicitud debe ser un JSON válido'], data: {} } }];\n  }\n}\nconst b = (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? parsed : {};\nconst str = (v) => (typeof v === 'string' ? v.trim() : null);\nconst up = (v) => (str(v) === null ? null : str(v).toUpperCase());\nconst errores = [];\n\nconst requestId = str(b.request_id);\nconst requestIdValido = requestId !== null && UUID_RE.test(requestId);\nif (!requestIdValido) errores.push('request_id debe ser un UUID válido');\n\nconst distrito = up(b.distrito);\nif (!['MIRAFLORES', 'SURQUILLO', 'OTRO'].includes(distrito)) {\n  errores.push('distrito debe ser MIRAFLORES, SURQUILLO u OTRO');\n}\n\nconst categoria = up(b.categoria);\nconst categoriaValida = ['ACUMULACION', 'OMISION_RECOJO', 'VOLUMINOSO'].includes(categoria);\nif (!categoriaValida) errores.push('categoria debe ser ACUMULACION, OMISION_RECOJO o VOLUMINOSO');\n\nconst referencia = str(b.referencia);\nif (referencia === null || referencia.length < 5 || referencia.length > 120) {\n  errores.push('referencia debe tener entre 5 y 120 caracteres');\n}\nconst descripcion = str(b.descripcion);\nif (descripcion === null || descripcion.length < 15 || descripcion.length > 200) {\n  errores.push('descripcion debe tener entre 15 y 200 caracteres');\n}\nif (typeof b.obstruccion !== 'boolean') errores.push('obstruccion debe ser verdadero o falso');\n\nconst sector = up(b.sector);\nif (distrito === 'MIRAFLORES' && !sector) errores.push('sector es obligatorio para MIRAFLORES');\n\nif (categoria === 'ACUMULACION') {\n  if (!Number.isInteger(b.bolsas) || b.bolsas < 1 || b.bolsas > 50) {\n    errores.push('bolsas debe ser un entero entre 1 y 50 para ACUMULACION');\n  }\n} else if (categoriaValida && b.bolsas !== undefined && b.bolsas !== null) {\n  errores.push('bolsas solo aplica a ACUMULACION');\n}\n\nlet decision = 'ADMITIDO';\nif (errores.length > 0) decision = 'INVALIDO';\nelse if (distrito !== 'MIRAFLORES') decision = 'FUERA_JURISDICCION';\n\nreturn [{ json: {\n  decision,\n  request_id: requestIdValido ? requestId.toLowerCase() : null,\n  errores,\n  data: {\n    sector,\n    categoria,\n    referencia,\n    descripcion,\n    obstruccion: b.obstruccion,\n    bolsas: categoria === 'ACUMULACION' ? b.bolsas : null,\n  },\n} }];"
+        },
+        "name": "Validar y normalizar",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          220,
+          300
+        ],
+        "id": "f3eb402b-e2e5-442b-ba86-ac1dfee1626a"
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 2
+            },
+            "conditions": [
+              {
+                "id": "c1",
+                "leftValue": "={{ $json.decision }}",
+                "rightValue": "INVALIDO",
+                "operator": {
+                  "type": "string",
+                  "operation": "equals"
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "name": "¿Datos inválidos?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          440,
+          300
+        ],
+        "id": "a1930681-2813-4860-b121-e0a38f586736"
+      },
+      {
+        "parameters": {
+          "jsCode": "const j = $input.first().json;\nreturn [{ json: {\n  http_status: 400,\n  resultado: 'DATOS_INVALIDOS',\n  request_id: j.request_id,\n  body: { codigo: 'DATOS_INVALIDOS', mensaje: 'Los datos enviados no son válidos. Revise los campos indicados.', detalle: j.errores },\n} }];"
+        },
+        "name": "Rechazo 400 DATOS_INVALIDOS",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          680,
+          120
+        ],
+        "id": "ef84b1a8-f498-4974-b54b-8774e4f951d5"
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 2
+            },
+            "conditions": [
+              {
+                "id": "c2",
+                "leftValue": "={{ $json.decision }}",
+                "rightValue": "FUERA_JURISDICCION",
+                "operator": {
+                  "type": "string",
+                  "operation": "equals"
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "name": "¿Fuera de jurisdicción?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          680,
+          360
+        ],
+        "id": "858fe815-701e-499d-8f52-f464fba629f0"
+      },
+      {
+        "parameters": {
+          "jsCode": "const j = $input.first().json;\nreturn [{ json: {\n  http_status: 422,\n  resultado: 'FUERA_DE_JURISDICCION',\n  request_id: j.request_id,\n  body: { codigo: 'FUERA_DE_JURISDICCION', mensaje: 'El reporte corresponde a otro distrito. Esta simulación solo atiende reportes de Miraflores.' },\n} }];"
+        },
+        "name": "Rechazo 422 FUERA_DE_JURISDICCION",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          920,
+          240
+        ],
+        "id": "c2a17bcc-aea3-44d6-b2a0-9ed1bcfe2be7"
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "select r.*, to_char(r.fecha_limite at time zone 'America/Lima', 'DD/MM/YYYY HH24:MI') as fecha_limite_lima, to_char(r.fecha_limite at time zone 'America/Lima', 'YYYY-MM-DD\"T\"HH24:MI:SS\"-05:00\"') as fecha_limite_iso from registrar_reporte($1::uuid, $2::text, $3::text, $4::text, $5::text, $6::boolean, $7::integer) r",
+          "options": {
+            "queryReplacement": "={{ [ $json.request_id, $json.data.sector, $json.data.categoria, $json.data.referencia, $json.data.descripcion, $json.data.obstruccion, $json.data.bolsas ] }}"
+          }
+        },
+        "name": "Registrar en PostgreSQL",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.5,
+        "position": [
+          920,
+          480
+        ],
+        "credentials": {
+          "postgres": {
+            "id": "miraPgCred0001",
+            "name": "Miraflores PostgreSQL (mira_app)"
+          }
+        },
+        "onError": "continueErrorOutput",
+        "id": "4b14c98d-afc1-4159-b306-b14af0c7c0e1"
+      },
+      {
+        "parameters": {
+          "rules": {
+            "values": [
+              {
+                "conditions": {
+                  "options": {
+                    "caseSensitive": true,
+                    "leftValue": "",
+                    "typeValidation": "strict",
+                    "version": 2
+                  },
+                  "conditions": [
+                    {
+                      "id": "s1",
+                      "leftValue": "={{ $json.http_status }}",
+                      "rightValue": 201,
+                      "operator": {
+                        "type": "number",
+                        "operation": "equals"
+                      }
+                    }
+                  ],
+                  "combinator": "and"
+                },
+                "renameOutput": true,
+                "outputKey": "201 alta"
+              },
+              {
+                "conditions": {
+                  "options": {
+                    "caseSensitive": true,
+                    "leftValue": "",
+                    "typeValidation": "strict",
+                    "version": 2
+                  },
+                  "conditions": [
+                    {
+                      "id": "s2",
+                      "leftValue": "={{ $json.http_status }}",
+                      "rightValue": 200,
+                      "operator": {
+                        "type": "number",
+                        "operation": "equals"
+                      }
+                    }
+                  ],
+                  "combinator": "and"
+                },
+                "renameOutput": true,
+                "outputKey": "200 duplicado"
+              },
+              {
+                "conditions": {
+                  "options": {
+                    "caseSensitive": true,
+                    "leftValue": "",
+                    "typeValidation": "strict",
+                    "version": 2
+                  },
+                  "conditions": [
+                    {
+                      "id": "s3",
+                      "leftValue": "={{ $json.http_status }}",
+                      "rightValue": 409,
+                      "operator": {
+                        "type": "number",
+                        "operation": "equals"
+                      }
+                    }
+                  ],
+                  "combinator": "and"
+                },
+                "renameOutput": true,
+                "outputKey": "409 conflicto"
+              },
+              {
+                "conditions": {
+                  "options": {
+                    "caseSensitive": true,
+                    "leftValue": "",
+                    "typeValidation": "strict",
+                    "version": 2
+                  },
+                  "conditions": [
+                    {
+                      "id": "s4",
+                      "leftValue": "={{ $json.http_status }}",
+                      "rightValue": 422,
+                      "operator": {
+                        "type": "number",
+                        "operation": "equals"
+                      }
+                    }
+                  ],
+                  "combinator": "and"
+                },
+                "renameOutput": true,
+                "outputKey": "422 sector"
+              }
+            ]
+          },
+          "options": {}
+        },
+        "name": "Resultado de la base",
+        "type": "n8n-nodes-base.switch",
+        "typeVersion": 3.2,
+        "position": [
+          1160,
+          420
+        ],
+        "id": "84277bd6-c2e1-4e42-a055-99b9a5c46ba5"
+      },
+      {
+        "parameters": {
+          "jsCode": "const j = $input.first().json;\nconst rid = $('Validar y normalizar').first().json.request_id;\nreturn [{ json: {\n  http_status: j.http_status,\n  resultado: j.resultado,\n  request_id: rid,\n  reporte_id: j.reporte_id,\n  body: {\n    codigo_publico: j.codigo_publico,\n    estado: j.estado,\n    prioridad: j.prioridad,\n    cola: j.cola,\n    plazo_horas: j.plazo_horas,\n    fecha_limite: j.fecha_limite_lima,\n    fecha_limite_iso: j.fecha_limite_iso,\n    duplicado: j.duplicado,\n    mensaje: j.duplicado ? 'Este reporte ya estaba registrado. Se devuelve el original.' : 'Reporte registrado correctamente.',\n  },\n} }];"
+        },
+        "name": "Respuesta 200/201",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1400,
+          300
+        ],
+        "id": "c932996d-e9a0-46dc-8c76-eac2b27525f8"
+      },
+      {
+        "parameters": {
+          "jsCode": "const rid = $('Validar y normalizar').first().json.request_id;\nreturn [{ json: {\n  http_status: 409,\n  resultado: 'IDENTIFICADOR_EN_CONFLICTO',\n  request_id: rid,\n  body: { codigo: 'IDENTIFICADOR_EN_CONFLICTO', mensaje: 'Ya existe un reporte con ese identificador y datos distintos. No se modificó el reporte original.' },\n} }];"
+        },
+        "name": "Rechazo 409 IDENTIFICADOR_EN_CONFLICTO",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1400,
+          460
+        ],
+        "id": "cb1d87ef-f5b8-4a0d-9c68-6c0d93b14769"
+      },
+      {
+        "parameters": {
+          "jsCode": "const rid = $('Validar y normalizar').first().json.request_id;\nreturn [{ json: {\n  http_status: 422,\n  resultado: 'SECTOR_NO_HABILITADO',\n  request_id: rid,\n  body: { codigo: 'SECTOR_NO_HABILITADO', mensaje: 'El sector indicado no existe o no está habilitado.' },\n} }];"
+        },
+        "name": "Rechazo 422 SECTOR_NO_HABILITADO",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1400,
+          600
+        ],
+        "id": "691551d7-3645-46c5-bc72-650f4bb5b182"
+      },
+      {
+        "parameters": {
+          "jsCode": "const rid = $('Validar y normalizar').first().json.request_id;\nreturn [{ json: {\n  http_status: 503,\n  resultado: 'ERROR_PERSISTENCIA',\n  request_id: rid,\n  body: { codigo: 'ERROR_PERSISTENCIA', mensaje: 'No se pudo confirmar el registro. Puede reintentar el mismo envío.' },\n} }];"
+        },
+        "name": "Error 503 ERROR_PERSISTENCIA",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1160,
+          700
+        ],
+        "id": "c8dbf9ca-e9c1-4e28-9ee5-854a70802de4"
+      },
+      {
+        "parameters": {
+          "jsCode": "const j = $input.first().json;\n$execution.customData.set('http_status', String(j.http_status));\n$execution.customData.set('resultado', j.resultado);\nif (j.request_id) $execution.customData.set('request_id', j.request_id);\nif (j.reporte_id) $execution.customData.set('reporte_id', String(j.reporte_id));\nreturn [{ json: j }];"
+        },
+        "name": "Registrar HTTP en la ejecución",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1640,
+          400
+        ],
+        "id": "8c8e148e-9e8e-4bf8-8692-06789199156f"
+      },
+      {
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={{ $json.body }}",
+          "options": {
+            "responseCode": "={{ $json.http_status }}"
+          }
+        },
+        "name": "Responder",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.1,
+        "position": [
+          1880,
+          400
+        ],
+        "id": "48b2baab-b933-4f69-8c0d-cef61e5ccb68"
+      }
+    ],
+    "connections": {
+      "Webhook reportes": {
+        "main": [
+          [
+            {
+              "node": "Validar y normalizar",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Validar y normalizar": {
+        "main": [
+          [
+            {
+              "node": "¿Datos inválidos?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "¿Datos inválidos?": {
+        "main": [
+          [
+            {
+              "node": "Rechazo 400 DATOS_INVALIDOS",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "¿Fuera de jurisdicción?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "¿Fuera de jurisdicción?": {
+        "main": [
+          [
+            {
+              "node": "Rechazo 422 FUERA_DE_JURISDICCION",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Registrar en PostgreSQL",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Registrar en PostgreSQL": {
+        "main": [
+          [
+            {
+              "node": "Resultado de la base",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Error 503 ERROR_PERSISTENCIA",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Resultado de la base": {
+        "main": [
+          [
+            {
+              "node": "Respuesta 200/201",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Respuesta 200/201",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Rechazo 409 IDENTIFICADOR_EN_CONFLICTO",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Rechazo 422 SECTOR_NO_HABILITADO",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Rechazo 400 DATOS_INVALIDOS": {
+        "main": [
+          [
+            {
+              "node": "Registrar HTTP en la ejecución",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Rechazo 422 FUERA_DE_JURISDICCION": {
+        "main": [
+          [
+            {
+              "node": "Registrar HTTP en la ejecución",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Respuesta 200/201": {
+        "main": [
+          [
+            {
+              "node": "Registrar HTTP en la ejecución",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Rechazo 409 IDENTIFICADOR_EN_CONFLICTO": {
+        "main": [
+          [
+            {
+              "node": "Registrar HTTP en la ejecución",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Rechazo 422 SECTOR_NO_HABILITADO": {
+        "main": [
+          [
+            {
+              "node": "Registrar HTTP en la ejecución",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Error 503 ERROR_PERSISTENCIA": {
+        "main": [
+          [
+            {
+              "node": "Registrar HTTP en la ejecución",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Registrar HTTP en la ejecución": {
+        "main": [
+          [
+            {
+              "node": "Responder",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionOrder": "v1",
+      "saveDataErrorExecution": "all",
+      "saveDataSuccessExecution": "all",
+      "saveManualExecutions": true
+    }
+  }
+]
