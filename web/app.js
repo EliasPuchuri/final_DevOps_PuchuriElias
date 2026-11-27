@@ -3,7 +3,8 @@
 
   const ENDPOINT = '/webhook/reportes';
   const TIMEOUT_MS = 15000;
-  const STORAGE_KEY = 'mira.requestId';
+  const ID_KEY = 'mira.requestId';
+  const NOTICE_KEY = 'mira.avisoVisto';
 
   const $ = (id) => document.getElementById(id);
   const form = $('reporte');
@@ -19,7 +20,29 @@
     descripcion: $('descripcion'),
   };
 
-  // The identifier belongs to one submission and is kept so a retry reuses it.
+  // ---- Session storage helpers: cleared by the browser when the tab is closed ----
+  function readSession(key) {
+    try { return sessionStorage.getItem(key); } catch (e) { return null; }
+  }
+  function writeSession(key, value) {
+    try { sessionStorage.setItem(key, value); } catch (e) { /* storage unavailable */ }
+  }
+
+  // ---- Academic notice (modal shown once per browser session) ----
+  function setupNotice() {
+    const dialog = $('aviso');
+    if (readSession(NOTICE_KEY) === '1') return;
+    // Closing the notice in any way (button or Esc) counts as seen for this browser session.
+    dialog.addEventListener('close', () => {
+      writeSession(NOTICE_KEY, '1');
+      fields.distrito.focus();
+    });
+    $('aviso-ok').addEventListener('click', () => dialog.close());
+    if (typeof dialog.showModal === 'function') dialog.showModal();
+    else dialog.setAttribute('open', '');
+  }
+
+  // ---- Request identifier: one per submission, reused on retry ----
   let requestId = loadRequestId();
   let lastPayload = null;
 
@@ -31,20 +54,14 @@
     const h = Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
     return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
   }
-
   function loadRequestId() {
-    try {
-      const saved = sessionStorage.getItem(STORAGE_KEY);
-      if (saved) return saved;
-    } catch (e) { /* storage unavailable: keep the id in memory only */ }
-    return storeRequestId(uuid());
+    const saved = readSession(ID_KEY);
+    return saved || storeRequestId(uuid());
   }
-
   function storeRequestId(id) {
-    try { sessionStorage.setItem(STORAGE_KEY, id); } catch (e) { /* ignore */ }
+    writeSession(ID_KEY, id);
     return id;
   }
-
   function showRequestId() { $('request-id').textContent = requestId; }
 
   // ---- Validation (mirrors the server rules; the server remains the authority) ----
@@ -60,13 +77,13 @@
     const referencia = fields.referencia.value.trim();
     const descripcion = fields.descripcion.value.trim();
 
-    if (!distrito) errors.distrito = 'Selecciona un distrito.';
-    if (distrito === 'MIRAFLORES' && !fields.sector.value) errors.sector = 'Selecciona un sector.';
-    if (!categoria) errors.categoria = 'Selecciona una categoría.';
+    if (!distrito) errors.distrito = 'Elige un distrito.';
+    if (distrito === 'MIRAFLORES' && !fields.sector.value) errors.sector = 'Elige un sector de Miraflores.';
+    if (!categoria) errors.categoria = 'Elige el tipo de problema.';
     if (categoria === 'ACUMULACION') {
       const n = Number(fields.bolsas.value);
       if (fields.bolsas.value === '' || !Number.isInteger(n) || n < 1 || n > 50) {
-        errors.bolsas = 'Indica un número entero de bolsas entre 1 y 50.';
+        errors.bolsas = 'Escribe cuántas bolsas hay: un número entero de 1 a 50.';
       }
     }
     if (referencia.length < 5 || referencia.length > 120) {
@@ -75,7 +92,7 @@
     if (descripcion.length < 15 || descripcion.length > 200) {
       errors.descripcion = 'La descripción debe tener entre 15 y 200 caracteres.';
     }
-    if (selectedObstruccion() === null) errors.obstruccion = 'Indica si los residuos impiden el paso peatonal.';
+    if (selectedObstruccion() === null) errors.obstruccion = 'Indica si los residuos bloquean el paso.';
     return errors;
   }
 
@@ -92,10 +109,7 @@
       }
     });
     const first = Object.keys(errors)[0];
-    if (first) {
-      const target = fields[first] || form.querySelector('input[name="obstruccion"]');
-      target.focus();
-    }
+    if (first) (fields[first] || form.querySelector('input[name="obstruccion"]')).focus();
   }
 
   function buildPayload() {
@@ -113,6 +127,14 @@
   }
 
   // ---- Result rendering (textContent only: server text is never interpreted as HTML) ----
+  const PRIORIDAD = { URGENTE: 'Urgente', ALTA: 'Alta', PROGRAMADA: 'Programada', NORMAL: 'Normal' };
+  const COLA = {
+    COORDINACION_OPERATIVA: 'Coordinación operativa',
+    RECOJO_ESPECIAL: 'Recojo especial',
+    LIMPIEZA_PUBLICA: 'Limpieza pública',
+  };
+  const ESTADO = { REGISTRADO: 'Registrado' };
+
   function el(tag, text, className) {
     const node = document.createElement(tag);
     if (text !== undefined) node.textContent = text;
@@ -134,46 +156,53 @@
     return b;
   }
 
-  function renderSuccess(status, data) {
+  function renderSuccess(data) {
     const dup = data.duplicado === true;
-    const rows = [
-      ['Código del reporte', data.codigo_publico],
-      ['Estado', data.estado],
-      ['Prioridad', data.prioridad],
-      ['Cola asignada', data.cola],
-      ['Plazo de primera revisión', `${data.plazo_horas} horas`],
-      ['Fecha límite (hora de Lima)', data.fecha_limite],
-      ['¿Duplicado?', dup ? 'Sí' : 'No'],
-    ];
     const dl = el('dl', undefined, 'datos');
-    rows.forEach(([k, v]) => { dl.append(el('dt', k), el('dd', String(v))); });
+    const add = (label, value) => dl.append(el('dt', label), value);
+
+    add('Código de seguimiento', el('dd', String(data.codigo_publico)));
+    add('Estado', el('dd', ESTADO[data.estado] || String(data.estado)));
+    const prio = el('dd');
+    prio.append(el('span', PRIORIDAD[data.prioridad] || String(data.prioridad), `badge ${String(data.prioridad).toLowerCase()}`));
+    add('Prioridad', prio);
+    add('Equipo asignado', el('dd', COLA[data.cola] || String(data.cola)));
+    add('Primera revisión antes de', el('dd', `${data.fecha_limite} (hora de Lima)`));
+    add('Plazo', el('dd', `${data.plazo_horas} horas desde el registro`));
+
     const note = dup
-      ? 'Este envío ya estaba registrado: se muestra el reporte original, sin crear otro.'
-      : 'Si vuelves a enviar este mismo formulario sin cambios, obtendrás el mismo reporte (duplicado). Para crear otro, usa «Nuevo reporte».';
-    showResult(dup ? 'dup' : 'ok', dup ? 'Reporte ya registrado' : 'Reporte registrado', [
-      el('p', data.mensaje || ''), dl, el('p', note, 'hint'),
+      ? 'Este envío ya estaba registrado. Te mostramos el reporte original; no se creó otro.'
+      : 'Si envías este mismo formulario otra vez, verás este mismo reporte. Para crear uno distinto, usa «Empezar de nuevo».';
+    showResult(dup ? 'dup' : 'ok', dup ? 'Este reporte ya estaba registrado' : 'Tu reporte fue registrado', [
+      dl, el('p', note, 'help'),
     ]);
   }
 
+  const ERROR_TITLE = {
+    400: 'Revisa los datos',
+    409: 'Este envío ya existe con otros datos',
+    422: 'No pudimos registrar este reporte',
+    503: 'No pudimos confirmar tu reporte',
+  };
+
   function renderError(status, data) {
-    const code = data && data.codigo ? data.codigo : `HTTP ${status}`;
     const nodes = [el('p', (data && data.mensaje) || 'No se pudo procesar el envío.')];
     if (data && Array.isArray(data.detalle) && data.detalle.length) {
       const ul = el('ul');
       data.detalle.forEach((d) => ul.append(el('li', d)));
       nodes.push(ul);
     }
-    nodes.push(el('p', `Código: ${code}`, 'hint'));
+    nodes.push(el('p', `Código: ${(data && data.codigo) || `HTTP ${status}`}`, 'help'));
     if (status === 503) {
-      nodes.push(el('p', 'Tu reporte no se confirmó. Puedes reintentar: se usará el mismo identificador, por lo que no se duplicará.'));
+      nodes.push(el('p', 'Puedes reintentar: se usará el mismo identificador, así que no se duplicará.'));
       nodes.push(retryButton());
     }
-    showResult('fail', 'No se registró el reporte', nodes);
+    showResult('fail', ERROR_TITLE[status] || 'No se registró el reporte', nodes);
   }
 
   function renderNetworkError() {
-    showResult('fail', 'No se pudo contactar al servicio', [
-      el('p', 'No recibimos respuesta. Tu reporte no se confirmó. Puedes reintentar con el mismo identificador.'),
+    showResult('fail', 'Sin conexión con el servicio', [
+      el('p', 'No recibimos respuesta, así que tu reporte no se confirmó. Puedes reintentar con el mismo identificador.'),
       retryButton(),
     ]);
   }
@@ -193,7 +222,7 @@
       });
       let data = null;
       try { data = await res.json(); } catch (e) { /* non-JSON body */ }
-      if ((res.status === 200 || res.status === 201) && data) renderSuccess(res.status, data);
+      if ((res.status === 200 || res.status === 201) && data) renderSuccess(data);
       else renderError(res.status, data);
     } catch (e) {
       renderNetworkError();
@@ -213,14 +242,15 @@
     if (!acumulacion) fields.bolsas.value = '';
   }
 
-  function updateCounter() {
-    $('contador').textContent = `${fields.descripcion.value.trim().length} / 200`;
+  function updateCounters() {
+    $('contador-referencia').textContent = `${fields.referencia.value.trim().length} / 120`;
+    $('contador-descripcion').textContent = `${fields.descripcion.value.trim().length} / 200`;
   }
 
   function resetForm() {
     form.reset();
     syncConditionalFields();
-    updateCounter();
+    updateCounters();
     paintErrors({});
     resultado.hidden = true;
     lastPayload = null;
@@ -231,7 +261,8 @@
 
   fields.distrito.addEventListener('change', syncConditionalFields);
   fields.categoria.addEventListener('change', syncConditionalFields);
-  fields.descripcion.addEventListener('input', updateCounter);
+  fields.referencia.addEventListener('input', updateCounters);
+  fields.descripcion.addEventListener('input', updateCounters);
   $('nuevo').addEventListener('click', resetForm);
 
   form.addEventListener('submit', (event) => {
@@ -243,6 +274,7 @@
   });
 
   syncConditionalFields();
-  updateCounter();
+  updateCounters();
   showRequestId();
+  setupNotice();
 })();
