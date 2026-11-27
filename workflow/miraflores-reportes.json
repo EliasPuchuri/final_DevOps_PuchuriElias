@@ -21,11 +21,11 @@
           300
         ],
         "webhookId": "5d0a7f6e-3b1c-4c52-9a43-0c9f4f1e7a10",
-        "id": "558e90ad-6bdc-4ac1-ac52-42a1196969dc"
+        "id": "c3cec04c-9a0f-4418-9bea-253bb3c3d229"
       },
       {
         "parameters": {
-          "jsCode": "const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;\n// The webhook delivers the raw body so a malformed JSON returns 400 DATOS_INVALIDOS\n// instead of n8n's own 422 parsing error.\nlet parsed = {};\nconst item = $input.first();\nif (item.binary && item.binary.data) {\n  const buf = await this.helpers.getBinaryDataBuffer(0, 'data');\n  try {\n    parsed = JSON.parse(buf.toString('utf8'));\n  } catch (e) {\n    return [{ json: { decision: 'INVALIDO', request_id: null,\n      errores: ['El cuerpo de la solicitud debe ser un JSON válido'], data: {} } }];\n  }\n}\nconst b = (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? parsed : {};\nconst str = (v) => (typeof v === 'string' ? v.trim() : null);\nconst up = (v) => (str(v) === null ? null : str(v).toUpperCase());\nconst errores = [];\n\nconst requestId = str(b.request_id);\nconst requestIdValido = requestId !== null && UUID_RE.test(requestId);\nif (!requestIdValido) errores.push('request_id debe ser un UUID válido');\n\nconst distrito = up(b.distrito);\nif (!['MIRAFLORES', 'SURQUILLO', 'OTRO'].includes(distrito)) {\n  errores.push('distrito debe ser MIRAFLORES, SURQUILLO u OTRO');\n}\n\nconst categoria = up(b.categoria);\nconst categoriaValida = ['ACUMULACION', 'OMISION_RECOJO', 'VOLUMINOSO'].includes(categoria);\nif (!categoriaValida) errores.push('categoria debe ser ACUMULACION, OMISION_RECOJO o VOLUMINOSO');\n\nconst referencia = str(b.referencia);\nif (referencia === null || referencia.length < 5 || referencia.length > 120) {\n  errores.push('referencia debe tener entre 5 y 120 caracteres');\n}\nconst descripcion = str(b.descripcion);\nif (descripcion === null || descripcion.length < 15 || descripcion.length > 200) {\n  errores.push('descripcion debe tener entre 15 y 200 caracteres');\n}\nif (typeof b.obstruccion !== 'boolean') errores.push('obstruccion debe ser verdadero o falso');\n\nconst sector = up(b.sector);\nif (distrito === 'MIRAFLORES' && !sector) errores.push('sector es obligatorio para MIRAFLORES');\n\nif (categoria === 'ACUMULACION') {\n  if (!Number.isInteger(b.bolsas) || b.bolsas < 1 || b.bolsas > 50) {\n    errores.push('bolsas debe ser un entero entre 1 y 50 para ACUMULACION');\n  }\n} else if (categoriaValida && b.bolsas !== undefined && b.bolsas !== null) {\n  errores.push('bolsas solo aplica a ACUMULACION');\n}\n\nlet decision = 'ADMITIDO';\nif (errores.length > 0) decision = 'INVALIDO';\nelse if (distrito !== 'MIRAFLORES') decision = 'FUERA_JURISDICCION';\n\nreturn [{ json: {\n  decision,\n  request_id: requestIdValido ? requestId.toLowerCase() : null,\n  errores,\n  data: {\n    sector,\n    categoria,\n    referencia,\n    descripcion,\n    obstruccion: b.obstruccion,\n    bolsas: categoria === 'ACUMULACION' ? b.bolsas : null,\n  },\n} }];"
+          "jsCode": "const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;\n// The webhook delivers the raw body so a malformed JSON returns 400 DATOS_INVALIDOS\n// instead of n8n's own 422 parsing error.\nlet parsed = {};\nconst item = $input.first();\nif (item.binary && item.binary.data) {\n  const buf = await this.helpers.getBinaryDataBuffer(0, 'data');\n  try {\n    parsed = JSON.parse(buf.toString('utf8'));\n  } catch (e) {\n    return [{ json: { decision: 'INVALIDO', request_id: null,\n      errores: ['El cuerpo de la solicitud debe ser un JSON válido'], data: {} } }];\n  }\n}\nconst b = (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? parsed : {};\nconst str = (v) => (typeof v === 'string' ? v.trim() : null);\nconst up = (v) => (str(v) === null ? null : str(v).toUpperCase());\nconst errores = [];\n\nconst requestId = str(b.request_id);\nconst requestIdValido = requestId !== null && UUID_RE.test(requestId);\nif (!requestIdValido) errores.push('request_id debe ser un UUID válido');\n\nconst distrito = up(b.distrito);\nif (!['MIRAFLORES', 'SURQUILLO', 'OTRO'].includes(distrito)) {\n  errores.push('distrito debe ser MIRAFLORES, SURQUILLO u OTRO');\n}\n\nconst categoria = up(b.categoria);\nconst categoriaValida = ['ACUMULACION', 'OMISION_RECOJO', 'VOLUMINOSO'].includes(categoria);\nif (!categoriaValida) errores.push('categoria debe ser ACUMULACION, OMISION_RECOJO o VOLUMINOSO');\n\n// Length is counted in characters (code points) like PostgreSQL does, not in UTF-16 units.\nconst chars = (s) => Array.from(s).length;\nconst wellFormed = (s) => { try { encodeURIComponent(s); return true; } catch (e) { return false; } };\nconst hasControl = (s, allowLineBreaks) =>\n  (allowLineBreaks ? /[\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F\\u007F]/ : /[\\u0000-\\u001F\\u007F]/).test(s);\n\nconst referencia = str(b.referencia);\nif (referencia === null || chars(referencia) < 5 || chars(referencia) > 120) {\n  errores.push('referencia debe tener entre 5 y 120 caracteres');\n} else if (!wellFormed(referencia) || hasControl(referencia, false)) {\n  errores.push('referencia no puede contener saltos de línea ni caracteres de control');\n}\nconst descripcion = str(b.descripcion);\nif (descripcion === null || chars(descripcion) < 15 || chars(descripcion) > 200) {\n  errores.push('descripcion debe tener entre 15 y 200 caracteres');\n} else if (!wellFormed(descripcion) || hasControl(descripcion, true)) {\n  errores.push('descripcion contiene caracteres que no se pueden guardar');\n}\nif (typeof b.obstruccion !== 'boolean') errores.push('obstruccion debe ser verdadero o falso');\n\nconst sector = up(b.sector);\nif (distrito === 'MIRAFLORES' && !sector) errores.push('sector es obligatorio para MIRAFLORES');\n\nif (categoria === 'ACUMULACION') {\n  if (!Number.isInteger(b.bolsas) || b.bolsas < 1 || b.bolsas > 50) {\n    errores.push('bolsas debe ser un entero entre 1 y 50 para ACUMULACION');\n  }\n} else if (categoriaValida && b.bolsas !== undefined && b.bolsas !== null) {\n  errores.push('bolsas solo aplica a ACUMULACION');\n}\n\nlet decision = 'ADMITIDO';\nif (errores.length > 0) decision = 'INVALIDO';\nelse if (distrito !== 'MIRAFLORES') decision = 'FUERA_JURISDICCION';\n\nreturn [{ json: {\n  decision,\n  request_id: requestIdValido ? requestId.toLowerCase() : null,\n  errores,\n  data: {\n    sector,\n    categoria,\n    referencia,\n    descripcion,\n    obstruccion: b.obstruccion,\n    bolsas: categoria === 'ACUMULACION' ? b.bolsas : null,\n  },\n} }];"
         },
         "name": "Validar y normalizar",
         "type": "n8n-nodes-base.code",
@@ -34,7 +34,7 @@
           220,
           300
         ],
-        "id": "9270c89c-3df8-43cf-b28d-240ad72626a7"
+        "id": "e26d0a00-ca52-4607-9835-5743382dfdff"
       },
       {
         "parameters": {
@@ -67,7 +67,7 @@
           440,
           300
         ],
-        "id": "aeb62955-6c20-40e3-a7e6-cf8f18b6a614"
+        "id": "d740a505-e889-479f-a5d4-993f9551f0cb"
       },
       {
         "parameters": {
@@ -80,7 +80,7 @@
           680,
           120
         ],
-        "id": "1436d1bc-de59-4eba-96d5-20358b2431f9"
+        "id": "d07d9a6c-3d70-4d8d-818f-5851b739b754"
       },
       {
         "parameters": {
@@ -113,7 +113,7 @@
           680,
           360
         ],
-        "id": "de4dbf27-4f0c-4e6d-990e-c914fd2631b2"
+        "id": "c8a6d7ab-1e7b-413d-a482-e5ea1406b374"
       },
       {
         "parameters": {
@@ -126,7 +126,7 @@
           920,
           240
         ],
-        "id": "1da6a5e1-35b6-44e9-a5bc-ba5268a65643"
+        "id": "d8d70480-466a-48d6-972b-0ac35bc6b673"
       },
       {
         "parameters": {
@@ -150,7 +150,7 @@
           }
         },
         "onError": "continueErrorOutput",
-        "id": "12badd68-46b0-4dec-b1b4-892fc29069ee"
+        "id": "997600d6-a6b9-4a05-b62d-ee8ea28a59b8"
       },
       {
         "parameters": {
@@ -263,7 +263,7 @@
           1160,
           420
         ],
-        "id": "8a21ad02-e65f-47ed-9eb7-6bff348eee92"
+        "id": "7a68557a-c84d-49b3-9869-323f22162975"
       },
       {
         "parameters": {
@@ -276,7 +276,7 @@
           1400,
           300
         ],
-        "id": "6cb48b4d-9e60-4838-a8cb-35a161b5c3aa"
+        "id": "49535959-eb3a-4433-b478-14191398d802"
       },
       {
         "parameters": {
@@ -289,7 +289,7 @@
           1400,
           460
         ],
-        "id": "b6055efc-5c92-44b5-8a7f-7e631073f043"
+        "id": "dcdd6be6-e4e4-476a-84e1-54a8f0562adf"
       },
       {
         "parameters": {
@@ -302,20 +302,20 @@
           1400,
           600
         ],
-        "id": "78b486a3-486e-46c7-8f5f-d5f846b2a2a6"
+        "id": "4e5bd08f-9ad0-4ac4-b4ea-943f619f7c97"
       },
       {
         "parameters": {
-          "jsCode": "const rid = $('Validar y normalizar').first().json.request_id;\nreturn [{ json: {\n  http_status: 503,\n  resultado: 'ERROR_PERSISTENCIA',\n  request_id: rid,\n  body: { codigo: 'ERROR_PERSISTENCIA', mensaje: 'No se pudo confirmar el registro. Puede reintentar el mismo envío.' },\n} }];"
+          "jsCode": "const rid = $('Validar y normalizar').first().json.request_id;\n// The database rejected the VALUE (constraint, text encoding, size): that is a data problem the user can fix,\n// not an availability problem. Connection, permission and timeout errors stay 503.\nconst detalle = JSON.stringify($input.first().json || {});\nconst errorDeDatos = /violates (check|not-null|foreign key) constraint|invalid byte sequence|invalid input syntax|value too long|out of range|cannot be converted/i.test(detalle)\n  && !/permission denied|password|authentication|connect|timeout|ECONN|terminating|role /i.test(detalle);\nif (errorDeDatos) {\n  return [{ json: {\n    http_status: 400,\n    resultado: 'DATOS_INVALIDOS',\n    request_id: rid,\n    body: { codigo: 'DATOS_INVALIDOS', mensaje: 'Los datos enviados no son válidos. Revise los campos indicados.', detalle: ['Algún campo tiene un valor que no se puede guardar.'] },\n  } }];\n}\nreturn [{ json: {\n  http_status: 503,\n  resultado: 'ERROR_PERSISTENCIA',\n  request_id: rid,\n  body: { codigo: 'ERROR_PERSISTENCIA', mensaje: 'No se pudo confirmar el registro. Puede reintentar el mismo envío.' },\n} }];"
         },
-        "name": "Error 503 ERROR_PERSISTENCIA",
+        "name": "Error de persistencia (503 o 400)",
         "type": "n8n-nodes-base.code",
         "typeVersion": 2,
         "position": [
           1160,
           700
         ],
-        "id": "059e99f7-b8c6-4df8-a26a-7a36aee64949"
+        "id": "37de829d-3b19-49ce-bb6e-3d48458b453e"
       },
       {
         "parameters": {
@@ -328,7 +328,7 @@
           1640,
           400
         ],
-        "id": "f79800cb-141e-48f1-86a3-0be186b8d8d3"
+        "id": "c4a48049-b39f-4084-8f5b-4d6151e5cdd4"
       },
       {
         "parameters": {
@@ -345,7 +345,7 @@
           1880,
           400
         ],
-        "id": "90aae71a-c615-41c5-af6f-246b8f37255a"
+        "id": "ca84a1f6-1b47-493f-9a08-808dba41d9db"
       },
       {
         "parameters": {
@@ -369,7 +369,7 @@
           }
         },
         "onError": "continueRegularOutput",
-        "id": "79fa2fb1-d446-4d98-91d5-20b259c0c5d7"
+        "id": "ce0af69e-d84d-4113-9e09-292bf9bb4fff"
       }
     ],
     "connections": {
@@ -442,7 +442,7 @@
           ],
           [
             {
-              "node": "Error 503 ERROR_PERSISTENCIA",
+              "node": "Error de persistencia (503 o 400)",
               "type": "main",
               "index": 0
             }
@@ -536,7 +536,7 @@
           ]
         ]
       },
-      "Error 503 ERROR_PERSISTENCIA": {
+      "Error de persistencia (503 o 400)": {
         "main": [
           [
             {
