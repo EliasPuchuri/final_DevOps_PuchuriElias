@@ -3,8 +3,8 @@
 
   const ENDPOINT = '/webhook/reportes';
   const TIMEOUT_MS = 15000;
-  const ID_KEY = 'mira.requestId';
   const NOTICE_KEY = 'mira.avisoVisto';
+  const PENDING_KEY = 'mira.envioPendiente';
 
   const $ = (id) => document.getElementById(id);
   const form = $('reporte');
@@ -27,6 +27,10 @@
   function writeSession(key, value) {
     try { sessionStorage.setItem(key, value); } catch (e) { /* storage unavailable */ }
   }
+  function removeSession(key) {
+    try { sessionStorage.removeItem(key); } catch (e) { /* storage unavailable */ }
+  }
+  removeSession('mira.requestId'); // key used by an earlier version of this page
 
   // ---- Academic notice (modal shown once per browser session) ----
   function setupNotice() {
@@ -42,8 +46,11 @@
     else dialog.setAttribute('open', '');
   }
 
-  // ---- Request identifier: one per submission, reused on retry ----
-  let requestId = loadRequestId();
+  // ---- Request identifier ----
+  // A new identifier is created on every page load. It is kept only while a submission is
+  // unconfirmed (server error, rate limit or no connection): then the same identifier is reused so
+  // that a retry can never create a second report. A definitive answer releases it.
+  let requestId = uuid();
   let lastPayload = null;
 
   function uuid() {
@@ -54,17 +61,17 @@
     const h = Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
     return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
   }
-  function loadRequestId() {
-    const saved = readSession(ID_KEY);
-    return saved || storeRequestId(uuid());
-  }
-  function storeRequestId(id) {
-    writeSession(ID_KEY, id);
-    return id;
-  }
   function showRequestId() { $('request-id').textContent = requestId; }
+  function savePending(payload) { writeSession(PENDING_KEY, JSON.stringify({ requestId, payload })); }
+  function clearPending() { removeSession(PENDING_KEY); }
 
-  // ---- Validation (mirrors the server rules; the server remains the authority) ----
+  // ---- Text rules (mirror the server; the server remains the authority) ----
+  // Length is counted in characters (code points), not UTF-16 units, like PostgreSQL does.
+  const chars = (s) => Array.from(s).length;
+  const wellFormed = (s) => { try { encodeURIComponent(s); return true; } catch (e) { return false; } };
+  const hasControl = (s, allowLineBreaks) =>
+    (allowLineBreaks ? /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/ : /[\u0000-\u001F\u007F]/).test(s);
+
   const selectedObstruccion = () => {
     const r = form.querySelector('input[name="obstruccion"]:checked');
     return r ? r.value === 'true' : null;
@@ -86,11 +93,15 @@
         errors.bolsas = 'Escribe cuántas bolsas hay: un número entero de 1 a 50.';
       }
     }
-    if (referencia.length < 5 || referencia.length > 120) {
+    if (chars(referencia) < 5 || chars(referencia) > 120) {
       errors.referencia = 'La referencia debe tener entre 5 y 120 caracteres.';
+    } else if (!wellFormed(referencia) || hasControl(referencia, false)) {
+      errors.referencia = 'La referencia no puede tener saltos de línea ni caracteres de control.';
     }
-    if (descripcion.length < 15 || descripcion.length > 200) {
+    if (chars(descripcion) < 15 || chars(descripcion) > 200) {
       errors.descripcion = 'La descripción debe tener entre 15 y 200 caracteres.';
+    } else if (!wellFormed(descripcion) || hasControl(descripcion, true)) {
+      errors.descripcion = 'La descripción tiene caracteres que no se pueden guardar.';
     }
     if (selectedObstruccion() === null) errors.obstruccion = 'Indica si los residuos bloquean el paso.';
     return errors;
@@ -182,18 +193,27 @@
     400: 'Revisa los datos',
     409: 'Este envío ya existe con otros datos',
     422: 'No pudimos registrar este reporte',
+    429: 'Demasiados envíos seguidos',
+    502: 'El servicio no está disponible',
     503: 'No pudimos confirmar tu reporte',
+    504: 'El servicio no respondió a tiempo',
   };
+  // Any server-side failure (5xx) or throttling (429) leaves the submission unconfirmed and retryable.
+  const isRetryable = (status) => status >= 500 || status === 429;
 
   function renderError(status, data) {
-    const nodes = [el('p', (data && data.mensaje) || 'No se pudo procesar el envío.')];
+    const fallback = status >= 500
+      ? 'No pudimos comunicarnos con el servicio. Tu reporte no se confirmó.'
+      : 'No se pudo procesar el envío.';
+    const nodes = [el('p', (data && data.mensaje) || fallback)];
     if (data && Array.isArray(data.detalle) && data.detalle.length) {
       const ul = el('ul');
       data.detalle.forEach((d) => ul.append(el('li', d)));
       nodes.push(ul);
     }
+    if (status === 409) nodes.push(el('p', 'Si quieres enviar un reporte distinto, pulsa «Empezar de nuevo».'));
     nodes.push(el('p', `Código: ${(data && data.codigo) || `HTTP ${status}`}`, 'help'));
-    if (status === 503) {
+    if (isRetryable(status)) {
       nodes.push(el('p', 'Puedes reintentar: se usará el mismo identificador, así que no se duplicará.'));
       nodes.push(retryButton());
     }
@@ -222,13 +242,50 @@
       });
       let data = null;
       try { data = await res.json(); } catch (e) { /* non-JSON body */ }
-      if ((res.status === 200 || res.status === 201) && data) renderSuccess(data);
-      else renderError(res.status, data);
+      if ((res.status === 200 || res.status === 201) && data) {
+        clearPending();
+        renderSuccess(data);
+      } else {
+        if (isRetryable(res.status)) savePending(payload);
+        else clearPending();
+        renderError(res.status, data);
+      }
     } catch (e) {
+      savePending(payload);
       renderNetworkError();
     } finally {
       clearTimeout(timer);
       enviar.disabled = false;
+    }
+  }
+
+  // ---- Restoring an unconfirmed submission after a page reload ----
+  function restorePending() {
+    const raw = readSession(PENDING_KEY);
+    if (!raw) return;
+    try {
+      const saved = JSON.parse(raw);
+      const p = saved.payload;
+      if (!saved.requestId || !p) throw new Error('invalid');
+      requestId = saved.requestId;
+      lastPayload = p;
+      fields.distrito.value = p.distrito || '';
+      syncConditionalFields();
+      if (p.sector) fields.sector.value = p.sector;
+      fields.categoria.value = p.categoria || '';
+      syncConditionalFields();
+      if (p.bolsas !== undefined) fields.bolsas.value = p.bolsas;
+      fields.referencia.value = p.referencia || '';
+      fields.descripcion.value = p.descripcion || '';
+      const radio = form.querySelector(`input[name="obstruccion"][value="${p.obstruccion}"]`);
+      if (radio) radio.checked = true;
+      updateCounters();
+      showResult('fail', 'Tienes un envío sin confirmar', [
+        el('p', 'Antes de recargar la página no recibimos respuesta de este reporte. Restauramos tus datos: reintenta para saber si quedó registrado.'),
+        retryButton(),
+      ]);
+    } catch (e) {
+      clearPending();
     }
   }
 
@@ -243,8 +300,8 @@
   }
 
   function updateCounters() {
-    $('contador-referencia').textContent = `${fields.referencia.value.trim().length} / 120`;
-    $('contador-descripcion').textContent = `${fields.descripcion.value.trim().length} / 200`;
+    $('contador-referencia').textContent = `${chars(fields.referencia.value.trim())} / 120`;
+    $('contador-descripcion').textContent = `${chars(fields.descripcion.value.trim())} / 200`;
   }
 
   function resetForm() {
@@ -254,7 +311,8 @@
     paintErrors({});
     resultado.hidden = true;
     lastPayload = null;
-    requestId = storeRequestId(uuid());
+    clearPending();
+    requestId = uuid();
     showRequestId();
     fields.distrito.focus();
   }
@@ -267,6 +325,7 @@
 
   form.addEventListener('submit', (event) => {
     event.preventDefault();
+    resultado.hidden = true; // never leave the previous answer on screen next to a new submission
     const errors = validate();
     paintErrors(errors);
     if (Object.keys(errors).length > 0) return;
@@ -275,6 +334,7 @@
 
   syncConditionalFields();
   updateCounters();
-  showRequestId();
   setupNotice();
+  restorePending();
+  showRequestId();
 })();
