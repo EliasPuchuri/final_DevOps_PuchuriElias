@@ -60,9 +60,14 @@ services:
     ports:
       # Local testing only; on the server the shared Caddy reaches this service through mira-proxy.
       - "127.0.0.1:${WEB_PORT:-18080}:80"
+    environment:
+      # Throttle per client IP for POST /webhook/reportes (requests per second, and extra burst allowed).
+      RATE_LIMIT_RPS: ${RATE_LIMIT_RPS:-5}
+      RATE_LIMIT_BURST: ${RATE_LIMIT_BURST:-20}
+      NGINX_ENVSUBST_FILTER: ^RATE_
     volumes:
       - ./web:/usr/share/nginx/html:ro
-      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/default.conf.template:/etc/nginx/templates/default.conf.template:ro
     mem_limit: 32m
     networks:
       proxy:

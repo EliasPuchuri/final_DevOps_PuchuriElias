@@ -1,22 +1,38 @@
 # Single public entry point of the stack: static form + the one allowed webhook route.
 # Everything else (n8n editor, REST API, test webhooks) is NOT reachable from here.
+#
+# This file is a template: the official nginx image replaces ${RATE_LIMIT_RPS} and ${RATE_LIMIT_BURST}
+# at start-up (NGINX_ENVSUBST_FILTER restricts the substitution to those variables).
 
 resolver 127.0.0.11 valid=10s;
+
+# Per-client throttle for report submissions (the endpoint is public and every valid request stores a row).
+limit_req_zone $binary_remote_addr zone=reportes:10m rate=${RATE_LIMIT_RPS}r/s;
 
 server {
   listen 80;
   server_name _;
 
+  # Do not advertise the nginx version.
+  server_tokens off;
+
+  # Behind Caddy and Cloudflare every connection comes from the proxy: use the real client address that
+  # Cloudflare puts in CF-Connecting-IP, but only when the request arrives from a private (container) network.
+  set_real_ip_from 10.0.0.0/8;
+  set_real_ip_from 172.16.0.0/12;
+  set_real_ip_from 192.168.0.0/16;
+  real_ip_header CF-Connecting-IP;
+
   root /usr/share/nginx/html;
   index index.html;
-
-  # Browsers must revalidate (ETag) on every load, so a redeploy is never hidden by a stale cache.
-  expires -1;
 
   # The form loads only its own files and talks only to this origin.
   add_header Content-Security-Policy "default-src 'self'; frame-ancestors 'none'" always;
   add_header X-Content-Type-Options "nosniff" always;
   add_header Referrer-Policy "no-referrer" always;
+
+  # Browsers must revalidate (ETag) on every load, so a redeploy is never hidden by a stale cache.
+  expires -1;
 
   # Only POST, small bodies. The body is forwarded as text/plain so that n8n does not run its own
   # JSON parser (which would answer 422 on malformed JSON before the workflow starts); the workflow
@@ -25,12 +41,23 @@ server {
     limit_except POST { deny all; }
     client_max_body_size 16k;
 
+    limit_req zone=reportes burst=${RATE_LIMIT_BURST} nodelay;
+    limit_req_status 429;
+    error_page 429 = @limitado;
+
     set $n8n_upstream http://n8n:5678;
     proxy_pass $n8n_upstream;
     proxy_set_header Host $host;
     proxy_set_header Content-Type text/plain;
     proxy_set_header X-Forwarded-For $http_x_forwarded_for;
     proxy_read_timeout 30s;
+  }
+
+  location @limitado {
+    default_type application/json;
+    add_header Retry-After 5 always;
+    add_header Cache-Control "no-store" always;
+    return 429 '{"codigo":"DEMASIADAS_SOLICITUDES","mensaje":"Demasiados envíos seguidos. Espera unos segundos e inténtalo de nuevo."}';
   }
 
   location /webhook { return 404; }
