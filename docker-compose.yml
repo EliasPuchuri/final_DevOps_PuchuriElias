@@ -57,10 +57,17 @@ services:
   web:
     image: nginx:1.27-alpine
     restart: unless-stopped
+    ports:
+      # Local testing only; on the server the shared Caddy reaches this service through mira-proxy.
+      - "127.0.0.1:${WEB_PORT:-18080}:80"
     volumes:
       - ./web:/usr/share/nginx/html:ro
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
     mem_limit: 32m
-    networks: [proxy]
+    networks:
+      proxy:
+        # Unique alias: the shared Caddy sits on many networks, so a bare "web" could collide.
+        aliases: [mira-web]
 
 volumes:
   pgdata:

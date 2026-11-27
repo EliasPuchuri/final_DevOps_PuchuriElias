@@ -4,8 +4,89 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Reportes de limpieza pública - Miraflores</title>
+  <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <p>Prototipo académico. Formulario pendiente (T6).</p>
+  <div class="notice" role="note">
+    <strong>Prototipo académico.</strong> Este formulario es una simulación universitaria con datos de prueba.
+    No ingreses datos personales ni reportes reales.
+  </div>
+
+  <main>
+    <h1>Reportar un problema de limpieza pública</h1>
+    <p class="lead">Municipalidad Distrital de Miraflores (simulación). Completa los datos y recibirás la prioridad y la fecha límite de primera revisión.</p>
+
+    <form id="reporte" novalidate>
+      <div class="field">
+        <label for="distrito">Distrito</label>
+        <select id="distrito" name="distrito" aria-describedby="err-distrito" required>
+          <option value="">Selecciona…</option>
+          <option value="MIRAFLORES">Miraflores</option>
+          <option value="SURQUILLO">Surquillo</option>
+          <option value="OTRO">Otro</option>
+        </select>
+        <p class="error" id="err-distrito" hidden></p>
+      </div>
+
+      <div class="field" id="campo-sector" hidden>
+        <label for="sector">Sector</label>
+        <select id="sector" name="sector" aria-describedby="err-sector">
+          <option value="">Selecciona…</option>
+          <option value="M01">M01 · Sector de prueba 1</option>
+          <option value="M02">M02 · Sector de prueba 2</option>
+          <option value="M03">M03 · Sector de prueba 3</option>
+        </select>
+        <p class="error" id="err-sector" hidden></p>
+      </div>
+
+      <div class="field">
+        <label for="categoria">Categoría</label>
+        <select id="categoria" name="categoria" aria-describedby="err-categoria" required>
+          <option value="">Selecciona…</option>
+          <option value="ACUMULACION">Acumulación de residuos</option>
+          <option value="OMISION_RECOJO">Omisión de recojo</option>
+          <option value="VOLUMINOSO">Residuo voluminoso</option>
+        </select>
+        <p class="error" id="err-categoria" hidden></p>
+      </div>
+
+      <div class="field" id="campo-bolsas" hidden>
+        <label for="bolsas">Cantidad de bolsas (1 a 50)</label>
+        <input id="bolsas" name="bolsas" type="number" min="1" max="50" step="1" inputmode="numeric" aria-describedby="err-bolsas">
+        <p class="error" id="err-bolsas" hidden></p>
+      </div>
+
+      <div class="field">
+        <label for="referencia">Referencia (5 a 120 caracteres)</label>
+        <input id="referencia" name="referencia" type="text" maxlength="200" autocomplete="off" aria-describedby="err-referencia" placeholder="Ej.: Av. Larco 123 (simulado)">
+        <p class="error" id="err-referencia" hidden></p>
+      </div>
+
+      <div class="field">
+        <label for="descripcion">Descripción (15 a 200 caracteres)</label>
+        <textarea id="descripcion" name="descripcion" rows="3" maxlength="300" aria-describedby="err-descripcion contador"></textarea>
+        <p class="hint" id="contador">0 / 200</p>
+        <p class="error" id="err-descripcion" hidden></p>
+      </div>
+
+      <fieldset class="field" aria-describedby="err-obstruccion">
+        <legend>¿Los residuos impiden el paso peatonal?</legend>
+        <label class="radio"><input type="radio" name="obstruccion" value="true"> Sí</label>
+        <label class="radio"><input type="radio" name="obstruccion" value="false"> No</label>
+        <p class="error" id="err-obstruccion" hidden></p>
+      </fieldset>
+
+      <div class="actions">
+        <button type="submit" id="enviar">Enviar reporte</button>
+        <button type="button" id="nuevo" class="secondary">Nuevo reporte</button>
+      </div>
+    </form>
+
+    <section id="resultado" class="result" aria-live="polite" tabindex="-1" hidden></section>
+
+    <p class="footnote">Identificador de este envío: <code id="request-id"></code></p>
+  </main>
+
+  <script src="app.js"></script>
 </body>
 </html>
