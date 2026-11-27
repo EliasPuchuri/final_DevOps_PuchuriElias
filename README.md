@@ -78,8 +78,10 @@ El plazo se cuenta en horas corridas desde el registro. Las fechas se muestran e
 | `scripts/export-workflow.sh` | Exporta el workflow y conserva solo los campos portables |
 | `tests/http/acceptance.sh` | Casos P01–P10 contra el webhook |
 | `tests/http/p11_failure.sh` | Caso P11 (solo en entornos aislados) |
-| `web/` | Formulario: `index.html`, `styles.css`, `app.js` (HTML/CSS/JS puros, sin dependencias) |
+| `web/` | Formulario: `index.html`, `styles.css`, `app.js` (HTML/CSS/JS puros, sin dependencias). El aviso académico es un modal que se muestra una vez por sesión del navegador (`sessionStorage`: se olvida al cerrar la pestaña) |
+| `db/updates/` | Cambios de datos para bases ya creadas (p. ej. nombres reales de los sectores) |
 | `docs/registro-de-errores.md` | Errores encontrados, causa, solución y estado |
+| `docs/sectores-y-distritos.md` | Sectores reales de Miraflores usados en el catálogo, fuente y salvedades |
 
 ## Pruebas
 
@@ -110,6 +112,29 @@ Se deshabilita el rol de la aplicación (`ALTER ROLE mira_app NOLOGIN`) y se cie
 - No hay límite de tasa ni protección contra abuso más allá de lo que aplique Cloudflare.
 - Las contraseñas del entorno local de pruebas son solo de desarrollo. Antes de desplegar, generar valores nuevos y aleatorios.
 
+## Despliegue en el servidor
+
+**URL pública:** `https://finalpuchuri.famespinoza.net.pe` (formulario y `POST /webhook/reportes`). El editor de n8n no es público.
+
+| Elemento | Detalle |
+|---|---|
+| Ubicación | `/srv/docker/miraflores` (clon de este repositorio; `.env` generado en el servidor, permisos `600`, no versionado) |
+| Contenedores | `miraflores-postgres-1`, `miraflores-n8n-1`, `miraflores-web-1` |
+| Entrada | Cloudflare → `cloudflared` → Caddy compartido → `mira-web:80` (red `mira-proxy`) |
+| Caddy compartido | Se agregó un sitio al `Caddyfile` y la red `mira-proxy` a su `compose.yaml`; copias previas: `*.bak-pre-miraflores` |
+| Editor de n8n | Solo por túnel SSH: `ssh -L 5679:127.0.0.1:5678 <usuario>@<servidor>` y luego `http://127.0.0.1:5679` |
+
+**Actualizar (manual, tras comprobar las pruebas de la misma revisión):**
+```sh
+cd /srv/docker/miraflores && git pull
+docker compose up -d --wait postgres n8n web
+set -a; . ./.env; set +a; sh scripts/n8n-import.sh </dev/null   # solo si cambió el workflow
+```
+
+**Primera vez:** crear el propietario de n8n (por el túnel o con `POST /rest/owner/setup`) antes de ejecutar `scripts/n8n-import.sh`.
+
+**Datos de prueba en producción:** la prueba de humo dejó el reporte `MIR-000001` (origen `prueba`). No se debe simular una caída en el servidor compartido; P11 se ejecuta solo en el entorno aislado (T8).
+
 ## Estado por tarea
 
 | Tarea | Estado |
@@ -121,7 +146,7 @@ Se deshabilita el rol de la aplicación (`ALTER ROLE mira_app NOLOGIN`) y se cie
 | T4 Workflow y decisiones | Hecha; P01–P10 pasan en local |
 | T5 Bitácora y recuperación | Hecha; P11 pasa en local |
 | T6 Formulario | Hecho; alta, duplicado, conflicto y reintento tras `503` verificados desde el navegador en local |
-| T7 Publicación (Caddy, túnel) | Pendiente; requiere reiniciar el Caddy compartido |
+| T7 Publicación (Caddy, túnel) | Hecha; URL pública activa y prueba de humo `201` verificada (ver [Despliegue](#despliegue-en-el-servidor)) |
 | T8 Aceptación en práctica aislada | Pendiente |
 | T9 Tablero de Grafana | Pendiente |
 | T10 Respaldo y reproducción en limpio | Pendiente |

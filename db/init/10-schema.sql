@@ -8,9 +8,9 @@ create table sectores (
 );
 
 insert into sectores (codigo, nombre, habilitado) values
-  ('M01', 'Sector M01', true),
-  ('M02', 'Sector M02', true),
-  ('M03', 'Sector M03', false);
+  ('M01', 'Sector B · Paseo de la República hasta los malecones', true),
+  ('M02', 'Sector C · Chacarilla Santa Cruz', true),
+  ('M03', 'Sector A · San Antonio y Aurora', false);
 
 create table reportes (
   id             bigint generated always as identity primary key,
