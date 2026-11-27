@@ -15,6 +15,7 @@ Qué falló, por qué, cómo se resolvió y qué sigue abierto. Los hechos de es
 | E7 | Secretos del archivo de ejemplo | **Abierto** |
 | E8 | Fallo de P11: por qué no se apaga Postgres | Decisión de diseño |
 | E9 | Problemas de herramientas en Git Bash | Documentado |
+| E10 | Tras un despliegue, el navegador mostraba la página sin estilos | Corregido |
 
 ---
 
@@ -109,6 +110,16 @@ Qué falló, por qué, cómo se resolvió y qué sigue abierto. Los hechos de es
 | `ENOENT ... C:/Users/.../Temp/cred.json` al importar | Git Bash convierte rutas que empiezan con `/` en rutas de Windows | `export MSYS_NO_PATHCONV=1` |
 | `rm: Operation not permitted` en `/tmp` del contenedor | `docker cp` deja el archivo con otro propietario | Enviar archivos por entrada estándar (`exec ... sh -c 'cat > ...'`) |
 | Fin de línea CRLF en scripts `.sh` | `core.autocrlf` en Windows | `.gitattributes` fuerza LF en `.sh`, `.sql`, `.yml` y `.json` |
+
+## E10 — Página sin estilos tras un despliegue (caché del navegador)
+
+- **Qué pasó:** después de publicar la nueva interfaz, la URL pública mostraba el HTML nuevo con los estilos y el script **viejos**: sin modal y con el diseño roto. El servidor entregaba los archivos nuevos (`200`).
+- **Causa:** nginx no enviaba `Cache-Control`. Con solo `Last-Modified`, el navegador reutiliza por heurística las copias que ya tenía de `styles.css` y `app.js`.
+- **Cómo se detectó:** la verificación visual en el navegador tras el despliegue. Las comprobaciones con `curl` no lo habrían mostrado.
+- **Solución:** `expires -1` en nginx (`Cache-Control: no-cache`, el navegador revalida con ETag en cada carga) y versión en las URL de los recursos (`styles.css?v=2`, `app.js?v=2`).
+- **Verificado:** los encabezados por la URL pública incluyen `cache-control: no-cache` y la política de seguridad; el sitio se ve bien tras recargar.
+- **Lección:** verificar siempre el resultado visual de un despliegue en un navegador, no solo los códigos HTTP. Subir el número `?v=` cuando cambien los recursos.
+- **Nota operativa:** el archivo `nginx/default.conf` se monta como un solo archivo; tras un `git pull` hay que reiniciar el contenedor `web` para que lo vea.
 
 ---
 
