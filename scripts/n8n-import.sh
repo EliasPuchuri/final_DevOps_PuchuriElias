@@ -10,6 +10,18 @@ COMPOSE=${COMPOSE:-docker compose}
 WORKFLOW_FILE=${WORKFLOW_FILE:-workflow/miraflores-reportes.json}
 WORKFLOW_ID=miraReportes001
 
+# On a brand-new database the n8n server runs its schema migrations at start-up. Running the CLI at the same
+# time makes both processes migrate concurrently ("duplicate key value ... pg_type_typname_nsp_index"),
+# so wait until the server answers its readiness probe.
+printf 'Waiting for n8n to be ready'
+ready=0
+for _ in $(seq 1 90); do
+  if $COMPOSE exec -T n8n wget -q -O /dev/null http://127.0.0.1:5678/healthz/readiness </dev/null 2>/dev/null; then ready=1; break; fi
+  printf '.'; sleep 2
+done
+echo
+[ "$ready" = 1 ] || { echo "n8n did not become ready in time" >&2; exit 1; }
+
 esc=$(printf '%s' "$MIRA_APP_PASSWORD" | sed 's/\\/\\\\/g; s/"/\\"/g')
 printf '[{"id":"miraPgCred0001","name":"Miraflores PostgreSQL (mira_app)","type":"postgres","data":{"host":"postgres","port":5432,"database":"miraflores","user":"mira_app","password":"%s","ssl":"disable","allowUnauthorizedCerts":false,"maxConnections":5}}]' "$esc" \
   | $COMPOSE exec -T n8n sh -c 'cat > /home/node/cred.json'
