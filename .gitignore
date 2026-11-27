@@ -28,3 +28,7 @@ desktop.ini
 *.log
 tmp/
 node_modules/
+
+# Python bytecode
+__pycache__/
+*.pyc

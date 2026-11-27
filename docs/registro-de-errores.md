@@ -16,6 +16,8 @@ Qué falló, por qué, cómo se resolvió y qué sigue abierto. Los hechos de es
 | E8 | Fallo de P11: por qué no se apaga Postgres | Decisión de diseño |
 | E9 | Problemas de herramientas en Git Bash | Documentado |
 | E10 | Tras un despliegue, el navegador mostraba la página sin estilos | Corregido |
+| E11 | `n8n-import.sh` fallaba en una instalación nueva | Corregido |
+| E12 | Hallazgos de la ronda de pruebas exhaustivas (F-01 a F-13) | Ver [reporte-de-pruebas.md](reporte-de-pruebas.md) |
 
 ---
 
@@ -120,6 +122,16 @@ Qué falló, por qué, cómo se resolvió y qué sigue abierto. Los hechos de es
 - **Verificado:** los encabezados por la URL pública incluyen `cache-control: no-cache` y la política de seguridad; el sitio se ve bien tras recargar.
 - **Lección:** verificar siempre el resultado visual de un despliegue en un navegador, no solo los códigos HTTP. Subir el número `?v=` cuando cambien los recursos.
 - **Nota operativa:** el archivo `nginx/default.conf` se monta como un solo archivo; tras un `git pull` hay que reiniciar el contenedor `web` para que lo vea.
+
+## E11 — `n8n-import.sh` falla en una instalación nueva
+
+- **Qué pasó:** `n8n import:credentials` falló con «Migration "CreateUserManagement…" failed: duplicate key value violates unique constraint "pg_type_typname_nsp_index"».
+- **Causa:** el script ejecutaba el CLI de n8n mientras el servidor, recién iniciado sobre una base vacía, aún corría sus migraciones. Dos procesos migraban a la vez. Antes pasaba desapercibido porque otro paso introducía una espera.
+- **Solución:** el script espera a que `/healthz/readiness` responda antes de importar. Verificado reconstruyendo el stack desde cero.
+
+## E12 — Hallazgos de la ronda de pruebas exhaustivas
+
+Los trece hallazgos (identificador reutilizado tras recargar, emojis y NUL, tarjeta de resultado obsoleta, límite de tasa, reintento con `502`, versión de nginx, contraste, entre otros), su resolución y su verificación están en [reporte-de-pruebas.md](reporte-de-pruebas.md).
 
 ---
 

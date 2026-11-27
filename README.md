@@ -70,7 +70,7 @@ El plazo se cuenta en horas corridas desde el registro. Las fechas se muestran e
 | Ruta | Contenido |
 |---|---|
 | `docker-compose.yml` | `postgres` (16), `n8n` (1.123.27 fija) y `web` (nginx) |
-| `nginx/default.conf` | Punto de entrada: formulario estático y única ruta de webhook permitida |
+| `nginx/default.conf.template` | Punto de entrada: formulario estático y única ruta de webhook permitida, con límite de tasa por IP (`RATE_LIMIT_RPS`, `RATE_LIMIT_BURST`; por defecto 5 por segundo y ráfaga de 20) |
 | `db/init/` | Se ejecutan solo al crear un volumen vacío: base de n8n, esquema y función, rol `mira_app` |
 | `db/tests/` | `01_registrar_reporte.sql` (pruebas SQL) y `02_concurrency.sh` (intentos solapados) |
 | `workflow/miraflores-reportes.json` | Workflow de n8n exportado y saneado (15 nodos) |
@@ -82,6 +82,9 @@ El plazo se cuenta en horas corridas desde el registro. Las fechas se muestran e
 | `db/updates/` | Cambios de datos para bases ya creadas (p. ej. nombres reales de los sectores) |
 | `docs/registro-de-errores.md` | Errores encontrados, causa, solución y estado |
 | `docs/sectores-y-distritos.md` | Sectores reales de Miraflores usados en el catálogo, fuente y salvedades |
+| `docs/reporte-de-pruebas.md` | Reporte de pruebas del formulario y del flujo: resultados, hallazgos por severidad y cómo reproducir |
+| `docs/evidencias/` | Capturas y `resultados-suite.json` (cada caso con su UUID, lo esperado y lo observado) |
+| `tests/http/suite.py` | Suite exhaustiva (247 verificaciones); solo para entornos aislados |
 
 ## Pruebas
 
@@ -109,7 +112,7 @@ Se deshabilita el rol de la aplicación (`ALTER ROLE mira_app NOLOGIN`) y se cie
 - El webhook es público y sin autenticación (conocer el enlace no identifica a nadie). Hay que usar datos sintéticos y mostrar el aviso académico.
 - `mira_app` solo puede ejecutar `registrar_reporte()`, insertar en la bitácora y leer `sectores`; **no puede leer `reportes`**.
 - El editor de n8n escucha solo en `127.0.0.1`; nunca se publica. Desde nginx solo es alcanzable `POST /webhook/reportes` (el resto responde 403/404). Postgres no publica puertos.
-- No hay límite de tasa ni protección contra abuso más allá de lo que aplique Cloudflare.
+- Límite de tasa por IP real en `POST /webhook/reportes` (5 por segundo, ráfaga de 20; responde `429` JSON con `Retry-After`). No hay autenticación ni captcha: sigue siendo un endpoint público de demostración.
 - Las contraseñas del entorno local de pruebas son solo de desarrollo. Antes de desplegar, generar valores nuevos y aleatorios.
 
 ## Despliegue en el servidor
@@ -131,7 +134,9 @@ docker compose up -d --wait postgres n8n web
 set -a; . ./.env; set +a; sh scripts/n8n-import.sh </dev/null   # solo si cambió el workflow
 ```
 
-**Primera vez:** crear el propietario de n8n (por el túnel o con `POST /rest/owner/setup`) antes de ejecutar `scripts/n8n-import.sh`.
+**Primera vez:** `scripts/n8n-import.sh` espera a que n8n esté listo y funciona aunque todavía no exista el propietario. El propietario hace falta para usar el editor: créalo desde la interfaz por el túnel SSH (en n8n 1.123.27, `POST /rest/owner/setup` respondió `404` en una instalación limpia).
+
+**Si cambia `nginx/default.conf.template` o las variables `RATE_LIMIT_*`:** `docker compose up -d web` recrea el contenedor (el archivo se monta como un solo archivo y hace falta recrearlo para verlo). Tras desplegar, comprobar en `docker compose logs web` que se registra la IP real del cliente (no la de Caddy): el límite de tasa depende de que Caddy reenvíe `CF-Connecting-IP`.
 
 **Datos de prueba en producción:** la prueba de humo dejó el reporte `MIR-000001` (origen `prueba`). No se debe simular una caída en el servidor compartido; P11 se ejecuta solo en el entorno aislado (T8).
 
