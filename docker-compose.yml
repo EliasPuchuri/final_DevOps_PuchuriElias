@@ -78,4 +78,5 @@ networks:
     internal: true
   # The shared Caddy container joins this network (done in T7).
   proxy:
-    name: mira-proxy
+    # Overridable so two stacks (e.g. an isolated test copy) can run side by side without sharing DNS.
+    name: ${PROXY_NETWORK:-mira-proxy}
