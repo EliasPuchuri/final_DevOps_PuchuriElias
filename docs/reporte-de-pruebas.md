@@ -1,6 +1,6 @@
 # Reporte de pruebas: formulario y flujo de reportes de limpieza pública
 
-**Fecha:** 27/11/2026 · **Versión probada:** commit `5ed7546` más las correcciones de esta ronda (sin commitear al momento de escribir este informe) · **Entorno:** stacks aislados y limpios (n8n 1.123.27, PostgreSQL 16, nginx 1.27), más una verificación en producción previa a las correcciones.
+**Fecha:** 27/11/2026 · **Versión probada:** commit `5ed7546` más las correcciones de esta ronda, ya en `main` y desplegadas en producción (commit `ecc35ee`) · **Entorno:** stacks aislados y limpios (n8n 1.123.27, PostgreSQL 16, nginx 1.27), más verificaciones en producción antes y después de las correcciones.
 
 ## 1. Veredicto
 
@@ -20,7 +20,7 @@ Las pruebas encontraron **13 hallazgos** (12 en la primera ronda y uno más, F-1
 | F-01 | **Alta** | Tras enviar un reporte y recargar, el siguiente reporte distinto recibía `409` | **Corregido** y verificado |
 | F-02 | Media | Emojis y el carácter NUL daban `503` (o `400`) incorrectos | **Corregido** y verificado |
 | F-03 | Media | La tarjeta de resultado anterior seguía visible tras un envío inválido | **Corregido** y verificado |
-| F-04 | Media | Sin limitación de tasa | **Corregido** (nginx) y verificado en local; falta confirmarlo en producción |
+| F-04 | Media | Sin limitación de tasa | **Corregido** (nginx) y verificado en local y en producción |
 | F-05 | Baja | Con n8n caído (`502`) no había botón de reintento | **Corregido** y verificado |
 | F-06 | Baja | nginx revelaba su versión | **Corregido** y verificado |
 | F-07 | Baja | Contraste insuficiente en bordes de campos y en el texto de ejemplo | **Corregido** y verificado |
@@ -149,6 +149,22 @@ Se repitió cada escenario que fallaba, sobre un stack nuevo construido desde ce
 
 **Cuatro «fallos» de mi arnés en esta ronda no eran del producto** y se repitieron correctamente: reutilicé el mismo identificador con datos distintos (que da `409` por diseño; el mensaje ahora sugiere «Empezar de nuevo»), un `<input>` de texto elimina por sí mismo los saltos de línea que se le asignan, y mi primer intento de provocar el `429` iba por debajo del límite.
 
+### 4.3 Producción tras el despliegue
+
+Verificado contra `https://finalpuchuri.famespinoza.net.pe` con el servidor en el commit `ecc35ee`.
+
+| Comprobación | Resultado |
+|---|---|
+| Se sirven `app.js?v=3` y `styles.css?v=3` con la lógica nueva (reintento, restauración, `--field-border`) | Pasa (verificado por contenido) |
+| `Cache-Control: no-cache`, política de seguridad y `nosniff` presentes (Cloudflare reescribe `Server`) | Pasa |
+| F-02: 3 emojis y un carácter NUL por la URL pública | `400 DATOS_INVALIDOS` (antes: `503`) |
+| F-04: ráfaga de 60 peticiones vacías (30 en paralelo) | 36 `400` y 24 `429` |
+| F-04: IP registrada por nginx | IP pública del cliente en las 63 peticiones; solo mis comprobaciones locales desde el servidor aparecen con IP privada |
+| Cadena completa tras reimportar el workflow: alta por API (`X-Origen: prueba`) | `201 · MIR-000003 · URGENTE · COORDINACION_OPERATIVA · 4 h`; fila, bitácora (ejecución 45) y `execution_metadata` coherentes |
+| Contenedores | `n8n`, `postgres` y `web` arriba |
+
+**No se pudo repetir en producción el flujo F-01 desde el navegador** (enviar, recargar, enviar otro): la extensión del navegador se desconectó durante la verificación. Ese flujo sí se verificó en local (sección 4.2) y en producción se comprobó que se sirve el código corregido. Conviene una repetición manual de 30 segundos antes de grabar el video.
+
 ## 5. Hallazgos y resolución
 
 ### F-01 · Alta · Un segundo reporte, tras recargar, recibía `409` — **Corregido**
@@ -175,12 +191,12 @@ Se repitió cada escenario que fallaba, sobre un stack nuevo construido desde ce
 
 - **Corrección** (`web/app.js`): el resultado anterior se oculta al iniciar cualquier envío, sea válido o no. Verificado en 4.2.
 
-### F-04 · Media · Sin limitación de tasa — **Corregido** (falta confirmarlo en producción)
+### F-04 · Media · Sin limitación de tasa — **Corregido**
 
 - **Qué pasaba:** el endpoint es público, sin autenticación, y cada envío válido inserta una fila. Una ráfaga de 150 envíos (50 en paralelo) se aceptó completa.
 - **Corrección** (`nginx/default.conf.template`): límite por IP real de **5 envíos por segundo con una ráfaga de 20** (configurable con `RATE_LIMIT_RPS` y `RATE_LIMIT_BURST`), respuesta `429` JSON con `Retry-After`, y el formulario muestra un aviso con reintento. La IP real se toma de `CF-Connecting-IP` solo cuando la petición llega desde una red privada (el contenedor de Caddy), para no limitar a todos los usuarios como si fueran uno.
 - **Verificado en local** (grupo G13 y sección 4.2), simulando `CF-Connecting-IP`.
-- **Pendiente en producción:** confirmar que Caddy reenvía ese encabezado y que nginx registra la IP real del cliente; si no, todos los usuarios compartirían un mismo cupo.
+- **Verificado en producción** (sección 4.3): Caddy reenvía `CF-Connecting-IP` y nginx registra la IP pública del cliente, no la del contenedor de Caddy, así que cada usuario tiene su propio cupo. Una ráfaga de 60 peticiones por la URL pública dio 36 `400` y 24 `429`.
 
 ### F-05 · Baja · Con n8n caído no había reintento — **Corregido**
 
@@ -236,7 +252,8 @@ Por transparencia, estos fallos eran **de las pruebas**, no del producto:
 
 ## 7. Qué no se probó
 
-- La ruta real Cloudflare → túnel → Caddy bajo carga, y límites de Cloudflare. **Las correcciones de esta ronda no están desplegadas en producción.**
+- La ruta real Cloudflare → túnel → Caddy bajo carga sostenida, y los límites propios de Cloudflare. El límite de tasa en producción se probó desde un solo cliente; no desde varias IP distintas a la vez.
+- El flujo F-01 desde el navegador **en producción** (ver 4.3).
 - Otros navegadores (Firefox, Safari), dispositivos móviles reales y lectores de pantalla. El diseño móvil se verificó con un iframe de 371 px.
 - El modo claro del navegador de forma visual (solo el cálculo de contraste).
 - Pruebas de larga duración; el respaldo y la restauración de la base (T10).
