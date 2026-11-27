@@ -21,7 +21,7 @@
           300
         ],
         "webhookId": "5d0a7f6e-3b1c-4c52-9a43-0c9f4f1e7a10",
-        "id": "5e0e79c8-b973-4183-bde3-8b3c5dc360ea"
+        "id": "558e90ad-6bdc-4ac1-ac52-42a1196969dc"
       },
       {
         "parameters": {
@@ -34,7 +34,7 @@
           220,
           300
         ],
-        "id": "f3eb402b-e2e5-442b-ba86-ac1dfee1626a"
+        "id": "9270c89c-3df8-43cf-b28d-240ad72626a7"
       },
       {
         "parameters": {
@@ -67,7 +67,7 @@
           440,
           300
         ],
-        "id": "a1930681-2813-4860-b121-e0a38f586736"
+        "id": "aeb62955-6c20-40e3-a7e6-cf8f18b6a614"
       },
       {
         "parameters": {
@@ -80,7 +80,7 @@
           680,
           120
         ],
-        "id": "ef84b1a8-f498-4974-b54b-8774e4f951d5"
+        "id": "1436d1bc-de59-4eba-96d5-20358b2431f9"
       },
       {
         "parameters": {
@@ -113,7 +113,7 @@
           680,
           360
         ],
-        "id": "858fe815-701e-499d-8f52-f464fba629f0"
+        "id": "de4dbf27-4f0c-4e6d-990e-c914fd2631b2"
       },
       {
         "parameters": {
@@ -126,7 +126,7 @@
           920,
           240
         ],
-        "id": "c2a17bcc-aea3-44d6-b2a0-9ed1bcfe2be7"
+        "id": "1da6a5e1-35b6-44e9-a5bc-ba5268a65643"
       },
       {
         "parameters": {
@@ -150,7 +150,7 @@
           }
         },
         "onError": "continueErrorOutput",
-        "id": "4b14c98d-afc1-4159-b306-b14af0c7c0e1"
+        "id": "12badd68-46b0-4dec-b1b4-892fc29069ee"
       },
       {
         "parameters": {
@@ -263,7 +263,7 @@
           1160,
           420
         ],
-        "id": "84277bd6-c2e1-4e42-a055-99b9a5c46ba5"
+        "id": "8a21ad02-e65f-47ed-9eb7-6bff348eee92"
       },
       {
         "parameters": {
@@ -276,7 +276,7 @@
           1400,
           300
         ],
-        "id": "c932996d-e9a0-46dc-8c76-eac2b27525f8"
+        "id": "6cb48b4d-9e60-4838-a8cb-35a161b5c3aa"
       },
       {
         "parameters": {
@@ -289,7 +289,7 @@
           1400,
           460
         ],
-        "id": "cb1d87ef-f5b8-4a0d-9c68-6c0d93b14769"
+        "id": "b6055efc-5c92-44b5-8a7f-7e631073f043"
       },
       {
         "parameters": {
@@ -302,7 +302,7 @@
           1400,
           600
         ],
-        "id": "691551d7-3645-46c5-bc72-650f4bb5b182"
+        "id": "78b486a3-486e-46c7-8f5f-d5f846b2a2a6"
       },
       {
         "parameters": {
@@ -315,11 +315,11 @@
           1160,
           700
         ],
-        "id": "c8dbf9ca-e9c1-4e28-9ee5-854a70802de4"
+        "id": "059e99f7-b8c6-4df8-a26a-7a36aee64949"
       },
       {
         "parameters": {
-          "jsCode": "const j = $input.first().json;\n$execution.customData.set('http_status', String(j.http_status));\n$execution.customData.set('resultado', j.resultado);\nif (j.request_id) $execution.customData.set('request_id', j.request_id);\nif (j.reporte_id) $execution.customData.set('reporte_id', String(j.reporte_id));\nreturn [{ json: j }];"
+          "jsCode": "const j = $input.first().json;\n// Automated tests send \"X-Origen: prueba\" so they can be told apart from demo visitors.\nconst h = $('Webhook reportes').first().json.headers || {};\nconst origen = String(h['x-origen'] || '').toLowerCase() === 'prueba' ? 'prueba' : 'demo';\n$execution.customData.set('http_status', String(j.http_status));\n$execution.customData.set('resultado', j.resultado);\n$execution.customData.set('origen', origen);\nif (j.request_id) $execution.customData.set('request_id', j.request_id);\nif (j.reporte_id) $execution.customData.set('reporte_id', String(j.reporte_id));\nreturn [{ json: { ...j, origen } }];"
         },
         "name": "Registrar HTTP en la ejecución",
         "type": "n8n-nodes-base.code",
@@ -328,7 +328,7 @@
           1640,
           400
         ],
-        "id": "8c8e148e-9e8e-4bf8-8692-06789199156f"
+        "id": "f79800cb-141e-48f1-86a3-0be186b8d8d3"
       },
       {
         "parameters": {
@@ -345,7 +345,31 @@
           1880,
           400
         ],
-        "id": "48b2baab-b933-4f69-8c0d-cef61e5ccb68"
+        "id": "90aae71a-c615-41c5-af6f-246b8f37255a"
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "insert into bitacora_intentos (request_id, http_status, resultado, reporte_id, ejecucion_id, origen) values ($1::uuid, $2::integer, $3::text, $4::bigint, $5::text, $6::text)",
+          "options": {
+            "queryReplacement": "={{ [ $json.request_id ?? null, $json.http_status, $json.resultado, $json.reporte_id ?? null, String($execution.id), $json.origen ] }}"
+          }
+        },
+        "name": "Registrar en bitácora",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.5,
+        "position": [
+          2120,
+          400
+        ],
+        "credentials": {
+          "postgres": {
+            "id": "miraPgCred0001",
+            "name": "Miraflores PostgreSQL (mira_app)"
+          }
+        },
+        "onError": "continueRegularOutput",
+        "id": "79fa2fb1-d446-4d98-91d5-20b259c0c5d7"
       }
     ],
     "connections": {
@@ -528,6 +552,17 @@
           [
             {
               "node": "Responder",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Responder": {
+        "main": [
+          [
+            {
+              "node": "Registrar en bitácora",
               "type": "main",
               "index": 0
             }

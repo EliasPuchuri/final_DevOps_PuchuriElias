@@ -9,7 +9,7 @@ uuid() { python -c "import uuid;print(uuid.uuid4())"; }
 
 # post <json> -> sets HTTP and BODY
 post() {
-  OUT=$(curl -s -w '\n%{http_code}' -X POST "$WEBHOOK_URL" -H 'Content-Type: application/json' -d "$1")
+  OUT=$(curl -s -w '\n%{http_code}' -X POST "$WEBHOOK_URL" -H 'Content-Type: application/json' -H 'X-Origen: prueba' -d "$1")
   HTTP=$(printf '%s' "$OUT" | tail -n1)
   BODY=$(printf '%s' "$OUT" | sed '$d')
 }
