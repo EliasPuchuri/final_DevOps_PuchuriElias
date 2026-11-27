@@ -1,2 +1,30 @@
+# Secrets and local environment (only the placeholder template is versioned)
 .env
+.env.*
+!.env.example
+*.pem
+*.key
 *.dump
+*.sql.gz
+
+# Local tooling and agent state
+.atl/
+.claude/
+.codegraph/
+.engram/
+
+# Course material, not part of the deliverable code
+Examen_Final_Desarrollo_de_Operaciones_de_Software_UCH.docx
+~$*.docx
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+
+# Logs, scratch output and dependencies
+*.log
+tmp/
+node_modules/
